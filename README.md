@@ -1,9 +1,5 @@
 # wordle-solver
 
-## Instructions
-
-You need a word list named `words-5.txt` in the current directory.  Search for a list of allowed guesses online.
-
 ## Command Line
 
 `python3 wordle-solve.py <positionals> <known letters>  <known wrong letters>`

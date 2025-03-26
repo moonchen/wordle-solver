@@ -16,7 +16,7 @@ def main():
 
 def solve(known_positions: list, known_letters: set, not_letters: set):
     all_words = set()
-    with open('words-5.txt') as f:
+    with open('valid-wordle-words.txt') as f:
         for word in f.readlines():
             all_words.add(word.strip())
 

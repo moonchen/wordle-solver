@@ -1,24 +1,21 @@
 #include <algorithm> // For std::sort, std::max, std::copy, std::fill, std::transform, std::min
 #include <array>         // For fixed-size Word arrays & count arrays
+#include <cctype>        // For ::tolower, ::isalpha, ::toupper
 #include <chrono>        // For timing execution
+#include <cstdint>       // For uint32_t (bitmasks)
+#include <cstring>       // For std::memcpy (in hash)
+#include <fstream>       // For file loading
+#include <functional>    // For std::hash
 #include <iomanip>       // For std::setprecision, std::fixed
 #include <iostream>      // For input/output (cout, cerr)
 #include <limits>        // For std::numeric_limits
+#include <omp.h>         // Include OpenMP header
 #include <set>           // Used in load_words for uniqueness
 #include <string>        // For string manipulation (input args, initial greens)
 #include <unordered_map> // For grouping feedback results & counts in filters
 #include <unordered_set> // For intermediate sets & final possible set lookup
+#include <utility>       // For std::pair, std::move
 #include <vector>        // For dynamic arrays (word lists, possible solutions)
-// #include <atomic>     // No longer needed for progress counter
-#include <cctype>     // For ::tolower, ::isalpha, ::toupper
-#include <cmath>      // For std::pow (though now unused)
-#include <cstdint>    // For uint32_t (bitmasks)
-#include <cstring>    // For std::memcpy (in hash)
-#include <fstream>    // For file loading
-#include <functional> // For std::hash
-#include <map> // Include map just in case for sorting/debugging if needed later
-#include <omp.h>   // Include OpenMP header
-#include <utility> // For std::pair, std::move
 
 // --- Configuration ---
 const int WORD_LENGTH = 5;
@@ -124,14 +121,19 @@ Word get_feedback(const Word &guess, const Word &actual) {
   return feedback;
 }
 
-// --- combine_feedback Implementation (Bitmasks - unchanged) ---
+// --- combine_feedback Implementation (Bitmasks - updated) ---
 GameState combine_feedback(const GameState &current_state, const Word &guess,
-                           const Word &feedback_pattern) {
+                           int feedback_index) {
   GameState next_state = current_state;
   uint32_t g_mask = 0u, y_mask = 0u, gr_mask = 0u;
+
   for (int i = 0; i < WORD_LENGTH; ++i) {
     char gc = guess[i];
-    char fc = feedback_pattern[i];
+    // Calculate fc based on feedback_index and position i
+    int feedback_value =
+        (feedback_index / static_cast<int>(std::pow(3, i))) % 3;
+    char fc = (feedback_value == 2) ? 'G' : (feedback_value == 1) ? 'Y' : '_';
+
     uint32_t cm = char_to_mask(gc);
     if (fc == 'G') {
       next_state.greens[i] = gc;
@@ -142,10 +144,12 @@ GameState combine_feedback(const GameState &current_state, const Word &guess,
       gr_mask |= cm;
     }
   }
+
   next_state.yellows_mask |= (y_mask & ~g_mask);
   next_state.greys_mask |= (gr_mask & ~g_mask & ~next_state.yellows_mask);
   next_state.yellows_mask &= ~g_mask;
   next_state.greys_mask &= ~(g_mask | next_state.yellows_mask);
+
   return next_state;
 }
 
@@ -181,18 +185,28 @@ int calculate_guess_score(const GameState &current_state,
     return 0;
   }
   constexpr int MAX_PATTERNS = 243;
-  std::array<int, MAX_PATTERNS> group_counts{};
+  std::array<int, MAX_PATTERNS> feedback_group_counts{};
   for (const Word &actual_solution : possible_solutions) {
     Word fp = get_feedback(candidate_guess, actual_solution);
     int idx = feedback_pattern_to_index(fp);
     if (idx >= 0 && idx < MAX_PATTERNS) {
-      group_counts[idx]++;
+      feedback_group_counts[idx]++;
     } else {
       std::cerr << "W: Invalid idx " << idx << "\n";
     }
   }
+
+  std::unordered_map<GameState, int, GameStateHash> game_state_map;
+  for (int i = 0; i < MAX_PATTERNS; i++) {
+    if (feedback_group_counts[i] == 0) {
+      continue; // Skip empty feedback groups
+    }
+    GameState new_state = combine_feedback(current_state, candidate_guess, i);
+    game_state_map[new_state] += feedback_group_counts[i];
+  }
+
   int max_group_size = 0;
-  for (int count : group_counts) {
+  for (const auto &[state, count] : game_state_map) {
     if (count > max_group_size) {
       max_group_size = count;
     }
